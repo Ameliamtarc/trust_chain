@@ -1,0 +1,13 @@
+{
+  "name": "proof-of-aid-support-costs-circuit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Circom circuit for a private support-cost cap proof",
+  "scripts": {
+    "compile": "circom2 src/main.circom --r1cs --wasm --sym -l node_modules -o build"
+  },
+  "devDependencies": {
+    "circomlib": "2.0.5",
+    "circom2": "0.2.16"
+  }
+}

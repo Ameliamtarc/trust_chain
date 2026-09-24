@@ -1,0 +1,16 @@
+{
+  "name": "proof-of-aid-support-costs",
+  "version": "0.1.0",
+  "compiler": "Circom 2.1.6 (circom2 0.2.16 prototype wrapper)",
+  "curve": "bn128",
+  "proofSystem": "Groth16",
+  "maxItems": 8,
+  "tokenDecimals": 18,
+  "maxShareBps": 10000,
+  "publicInputsInOrder": ["commitment", "budget", "maxShareBps"],
+  "privateInputs": ["items[8]", "salt"],
+  "commitment": "Poseidon(items[0..7], salt)",
+  "verifyingKeyHash": null,
+  "setupStatus": "not-generated",
+  "onChainVerifierStatus": "not-integrated"
+}
