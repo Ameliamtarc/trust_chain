@@ -1,0 +1,5 @@
+
+# Local evidence fixtures may contain sensitive data; keep them out of Git.
+/backend/data/local-store/*
+!/backend/data/local-store/.gitkeep
+!/backend/data/local-store/.gitignore
