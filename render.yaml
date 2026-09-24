@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: proof-of-aid-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: CHAIN_ID
+        value: "421614"
+      - key: CHAIN_RPC_URL
+        value: https://sepolia-rollup.arbitrum.io/rpc
+      - key: CHAIN_PROJECT_IDS
+        value: ""
+      - key: ROLE_REGISTRY_ADDRESS
+        value: 0x0000000000000000000000000000000000000000
+      - key: ESCROW_ADDRESS
+        value: 0x0000000000000000000000000000000000000000
+
+  - type: web
+    name: proof-of-aid-web
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: proof-of-aid-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_ESCROW_ADDRESS
+        value: 0x0000000000000000000000000000000000000000
+      - key: NEXT_PUBLIC_PAYMENT_TOKEN_ADDRESS
+        value: 0x0000000000000000000000000000000000000000

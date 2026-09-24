@@ -132,3 +132,6 @@ console.log(`ROLE_REGISTRY_ADDRESS=${registry}`);
 console.log(`ESCROW_ADDRESS=${escrow}`);
 console.log(`PAYMENT_TOKEN_ADDRESS=${token}`);
 console.log(`SUPPORT_COST_VERIFIER_ADDRESS=${verifierAddress}`);
+console.log('\nFrontend .env.local values (copy manually):');
+console.log(`NEXT_PUBLIC_ESCROW_ADDRESS=${escrow}`);
+console.log(`NEXT_PUBLIC_PAYMENT_TOKEN_ADDRESS=${token}`);
