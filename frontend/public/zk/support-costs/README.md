@@ -1,0 +1,1 @@
+Place the generated `main.wasm`, `main.zkey`, and `verification_key.json` here for the browser proof flow. See `../../../../circuits/support-costs/README.md` for the local demo setup. These files are build/setup artifacts and are intentionally not committed.

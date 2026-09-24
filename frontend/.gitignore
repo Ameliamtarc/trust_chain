@@ -7,3 +7,6 @@ out/
 .DS_Store
 
 *.tsbuildinfo
+/public/zk/support-costs/main.wasm
+/public/zk/support-costs/main.zkey
+/public/zk/support-costs/verification_key.json

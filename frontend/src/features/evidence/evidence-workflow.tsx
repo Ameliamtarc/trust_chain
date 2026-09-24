@@ -5,8 +5,9 @@ import { isAddress, keccak256, stringToBytes, type Hex } from 'viem';
 import { useWallet } from '@/app/providers';
 import { chain, escrowAddress } from '@/lib/chain/config';
 import { escrowAbi } from '@/lib/chain/escrow-abi';
+import { SupportCostProof } from '@/features/zk/support-cost-proof';
 
-type Milestone = { id: number; status: string; evidenceHash: string; requiredRoles: readonly string[] };
+type Milestone = { id: number; status: string; evidenceHash: string; requiredRoles: readonly string[]; budget: string; maxSupportCostBps: number; supportCostProofSubmitted: boolean };
 type Project = { id: string; organizer: string; currentMilestone: number; status: string; milestones: Milestone[] };
 
 const roleLabels = [
@@ -94,6 +95,13 @@ export function EvidenceWorkflow({ project, onAction }: { project: Project; onAc
         Confirmar como {knownRoles.get(role.toLowerCase()) ?? `rol ${role.slice(0, 10)}…`}
       </button>)}
     </div>}
+    {hasEvidence && milestone.maxSupportCostBps > 0 && <section className="support-cost-section">
+      <h4>Prueba del límite de costes de apoyo</h4>
+      <p>Límite configurado: {(milestone.maxSupportCostBps / 100).toLocaleString('es-ES')}% del presupuesto de este hito.</p>
+      {milestone.supportCostProofSubmitted
+        ? <div className="notice">Prueba registrada. La política del hito todavía requiere las demás verificaciones.</div>
+        : <SupportCostProof projectId={project.id} milestoneId={milestone.id} budget={milestone.budget} maxShareBps={milestone.maxSupportCostBps} onSubmitted={onAction} />}
+    </section>}
     <p className="privacy-reminder">No subas denuncias, expedientes, derivaciones, imágenes ni datos de niños o familias. El hash prueba que existe un archivo concreto, no acredita por sí solo su contenido.</p>
     {message && <div className="donate-status" role="status">{message}</div>}
     {error && <div className="form-error" role="alert">{error}</div>}

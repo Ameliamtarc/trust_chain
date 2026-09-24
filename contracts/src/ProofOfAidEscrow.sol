@@ -4,6 +4,16 @@ pragma solidity ^0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+interface ISupportCostVerifier {
+    function verifyProof(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[3] calldata input
+    ) external view returns (bool);
+}
 
 interface IProofOfAidRoleRegistry {
     function hasRole(bytes32 role, address account) external view returns (bool);
@@ -42,8 +52,10 @@ contract ProofOfAidEscrow is ReentrancyGuard {
         uint256 budget;
         uint256 fundingStart;
         uint64 evidenceDeadline;
+        uint16 maxSupportCostBps;
         MilestoneStatus status;
         bytes32 evidenceHash;
+        bool supportCostProofSubmitted;
         bytes32[] requiredRoles;
         mapping(bytes32 => uint8) requiredCount;
         mapping(bytes32 => uint8) confirmedCount;
@@ -55,17 +67,29 @@ contract ProofOfAidEscrow is ReentrancyGuard {
         uint256 end;
     }
 
+    struct Groth16Proof {
+        uint256[2] a;
+        uint256[2][2] b;
+        uint256[2] c;
+    }
+
     struct CreateProjectParams {
         address arbitrator;
         uint256[] budgets;
         bytes32[][] requiredRoles;
         uint8[][] requiredCounts;
+        uint16[] maxSupportCostBps;
         uint64 evidencePeriod;
         uint64 refundDelay;
     }
 
     IERC20 public immutable paymentToken;
     IProofOfAidRoleRegistry public immutable roleRegistry;
+    ISupportCostVerifier public immutable supportCostVerifier;
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant ATTESTATION_TYPEHASH = keccak256("SupportCostAttestation(uint256 projectId,uint8 milestoneId,bytes32 commitment,uint256 budget,uint16 maxShareBps)");
+    bytes32 private constant NAME_HASH = keccak256("ProofOfAidEscrow");
+    bytes32 private constant VERSION_HASH = keccak256("1");
     uint256 public nextProjectId = 1;
     uint256 private nextDonationId = 1;
 
@@ -73,12 +97,14 @@ contract ProofOfAidEscrow is ReentrancyGuard {
     mapping(uint256 projectId => mapping(uint8 milestoneId => Milestone)) private milestones;
     mapping(uint256 projectId => mapping(address donor => FundingRange[])) private donorRanges;
     mapping(uint256 projectId => mapping(address donor => bool)) public refundClaimed;
+    mapping(uint256 projectId => mapping(uint8 milestoneId => mapping(bytes32 commitment => bool))) public usedSupportCostCommitments;
 
     event ProjectCreated(uint256 indexed projectId, address indexed organizer, address indexed arbitrator, uint256 target, uint8 milestoneCount);
     event DonationCreated(uint256 indexed projectId, uint256 indexed donationId, address indexed donor, uint256 amount, uint256 fundingStart);
     event MilestoneReleased(uint256 indexed projectId, uint8 indexed milestoneId, address indexed recipient, uint256 amount, uint64 evidenceDeadline);
     event EvidenceSubmitted(uint256 indexed projectId, uint8 indexed milestoneId, bytes32 evidenceHash, uint64 evidenceDeadline);
     event MilestoneConfirmed(uint256 indexed projectId, uint8 indexed milestoneId, bytes32 indexed role, address verifier, bytes32 organizationId);
+    event SupportCostProofSubmitted(uint256 indexed projectId, uint8 indexed milestoneId, bytes32 indexed commitment, uint16 maxShareBps, address auditor);
     event MilestoneVerified(uint256 indexed projectId, uint8 indexed milestoneId);
     event MilestoneRejected(uint256 indexed projectId, uint8 indexed milestoneId, bytes32 indexed role, address verifier, bytes32 reasonCode);
     event DisputeOpened(uint256 indexed projectId, uint8 indexed milestoneId, address indexed openedBy, bytes32 reasonCode);
@@ -98,12 +124,15 @@ contract ProofOfAidEscrow is ReentrancyGuard {
     error NothingToRefund();
     error RefundAlreadyClaimed();
     error TransferAmountMismatch();
+    error InvalidSupportCostProof();
+    error InvalidAuditorAttestation();
 
-    constructor(IERC20 token, IProofOfAidRoleRegistry registry) {
-        if (address(token) == address(0) || address(registry) == address(0)) revert ZeroAddress();
-        if (address(token).code.length == 0 || address(registry).code.length == 0) revert InvalidProject();
+    constructor(IERC20 token, IProofOfAidRoleRegistry registry, ISupportCostVerifier verifier) {
+        if (address(token) == address(0) || address(registry) == address(0) || address(verifier) == address(0)) revert ZeroAddress();
+        if (address(token).code.length == 0 || address(registry).code.length == 0 || address(verifier).code.length == 0) revert InvalidProject();
         paymentToken = token;
         roleRegistry = registry;
+        supportCostVerifier = verifier;
     }
 
     function createProject(CreateProjectParams calldata params) external returns (uint256 projectId) {
@@ -111,7 +140,7 @@ contract ProofOfAidEscrow is ReentrancyGuard {
         if (params.arbitrator == address(0) || !roleRegistry.hasRole(ARBITRATOR_ROLE, params.arbitrator)) revert Unauthorized();
         uint256 count = params.budgets.length;
         if (count == 0 || count > 8 || params.requiredRoles.length != count ||
-            params.requiredCounts.length != count || params.evidencePeriod == 0) revert InvalidPolicy();
+            params.requiredCounts.length != count || params.maxSupportCostBps.length != count || params.evidencePeriod == 0) revert InvalidPolicy();
 
         projectId = nextProjectId++;
         Project storage project = projects[projectId];
@@ -137,6 +166,9 @@ contract ProofOfAidEscrow is ReentrancyGuard {
             Milestone storage milestone = milestones[projectId][i];
             milestone.budget = budget;
             milestone.fundingStart = fundingStart;
+            milestone.maxSupportCostBps = params.maxSupportCostBps[i];
+            if (milestone.maxSupportCostBps > 10_000) revert InvalidPolicy();
+            if (milestone.maxSupportCostBps != 0 && budget > type(uint128).max) revert InvalidPolicy();
             milestone.status = MilestoneStatus.Locked;
             for (uint256 j; j < roles.length; ++j) {
                 bytes32 role = roles[j];
@@ -195,16 +227,55 @@ contract ProofOfAidEscrow is ReentrancyGuard {
         milestone.confirmedCount[role]++;
         emit MilestoneConfirmed(projectId, milestoneId, role, msg.sender, organizationId);
 
-        if (_policySatisfied(milestone)) {
-            milestone.status = MilestoneStatus.Verified;
-            emit MilestoneVerified(projectId, milestoneId);
-            if (milestoneId + 1 == project.milestoneCount) {
-                project.status = ProjectStatus.Completed;
-            } else {
-                project.currentMilestone = milestoneId + 1;
-                _release(projectId, milestoneId + 1);
-            }
-        }
+        _completeMilestoneIfSatisfied(projectId, milestoneId, project, milestone);
+    }
+
+    /// @notice Bind a private support-cost proof to this exact milestone and an authorized auditor's attestation.
+    /// @dev Public inputs follow the circuit order: commitment, milestone budget, configured cap in basis points.
+    function submitSupportCostProof(
+        uint256 projectId,
+        uint8 milestoneId,
+        bytes32 commitment,
+        Groth16Proof calldata proof,
+        address auditor,
+        bytes calldata auditorSignature
+    ) external {
+        Project storage project = _project(projectId);
+        Milestone storage milestone = _currentMilestone(project, projectId, milestoneId);
+        if (project.status != ProjectStatus.Active || milestone.status != MilestoneStatus.EvidenceSubmitted ||
+            milestone.maxSupportCostBps == 0 || milestone.supportCostProofSubmitted || commitment == bytes32(0) ||
+            usedSupportCostCommitments[projectId][milestoneId][commitment]) revert InvalidState();
+        if (!roleRegistry.hasRole(AUDITOR_ROLE, auditor)) revert Unauthorized();
+
+        _verifyAuditorAttestation(projectId, milestoneId, commitment, milestone.budget, milestone.maxSupportCostBps, auditor, auditorSignature);
+        _verifySupportCostProof(commitment, milestone.budget, milestone.maxSupportCostBps, proof);
+
+        usedSupportCostCommitments[projectId][milestoneId][commitment] = true;
+        milestone.supportCostProofSubmitted = true;
+        emit SupportCostProofSubmitted(projectId, milestoneId, commitment, milestone.maxSupportCostBps, auditor);
+        _completeMilestoneIfSatisfied(projectId, milestoneId, project, milestone);
+    }
+
+    function _verifyAuditorAttestation(
+        uint256 projectId,
+        uint8 milestoneId,
+        bytes32 commitment,
+        uint256 budget,
+        uint16 maxShareBps,
+        address auditor,
+        bytes calldata auditorSignature
+    ) private view {
+        bytes32 structHash = keccak256(abi.encode(ATTESTATION_TYPEHASH, projectId, milestoneId, commitment, budget, maxShareBps));
+        bytes32 domainSeparator = keccak256(abi.encode(
+            EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        if (ECDSA.recover(digest, auditorSignature) != auditor) revert InvalidAuditorAttestation();
+    }
+
+    function _verifySupportCostProof(bytes32 commitment, uint256 budget, uint16 maxShareBps, Groth16Proof calldata proof) private view {
+        uint256[3] memory publicInputs = [uint256(commitment), budget, uint256(maxShareBps)];
+        if (!supportCostVerifier.verifyProof(proof.a, proof.b, proof.c, publicInputs)) revert InvalidSupportCostProof();
     }
 
     function rejectMilestone(uint256 projectId, uint8 milestoneId, bytes32 role, bytes32 reasonCode) external {
@@ -289,12 +360,13 @@ contract ProofOfAidEscrow is ReentrancyGuard {
 
     function getMilestone(uint256 projectId, uint8 milestoneId) external view returns (
         uint256 budget, uint256 fundingStart, uint64 evidenceDeadline,
-        MilestoneStatus status, bytes32 evidenceHash
+        MilestoneStatus status, bytes32 evidenceHash, uint16 maxSupportCostBps, bool supportCostProofSubmitted
     ) {
         _project(projectId);
         if (milestoneId >= projects[projectId].milestoneCount) revert InvalidMilestone();
         Milestone storage milestone = milestones[projectId][milestoneId];
-        return (milestone.budget, milestone.fundingStart, milestone.evidenceDeadline, milestone.status, milestone.evidenceHash);
+        return (milestone.budget, milestone.fundingStart, milestone.evidenceDeadline, milestone.status, milestone.evidenceHash,
+            milestone.maxSupportCostBps, milestone.supportCostProofSubmitted);
     }
 
     function getRequiredRoles(uint256 projectId, uint8 milestoneId) external view returns (bytes32[] memory) {
@@ -355,11 +427,29 @@ contract ProofOfAidEscrow is ReentrancyGuard {
     }
 
     function _policySatisfied(Milestone storage milestone) private view returns (bool) {
+        if (milestone.maxSupportCostBps != 0 && !milestone.supportCostProofSubmitted) return false;
         for (uint256 i; i < milestone.requiredRoles.length; ++i) {
             bytes32 role = milestone.requiredRoles[i];
             if (milestone.confirmedCount[role] < milestone.requiredCount[role]) return false;
         }
         return true;
+    }
+
+    function _completeMilestoneIfSatisfied(
+        uint256 projectId,
+        uint8 milestoneId,
+        Project storage project,
+        Milestone storage milestone
+    ) private {
+        if (!_policySatisfied(milestone)) return;
+        milestone.status = MilestoneStatus.Verified;
+        emit MilestoneVerified(projectId, milestoneId);
+        if (milestoneId + 1 == project.milestoneCount) {
+            project.status = ProjectStatus.Completed;
+        } else {
+            project.currentMilestone = milestoneId + 1;
+            _release(projectId, milestoneId + 1);
+        }
     }
 
     function _lockedAllocation(uint256 projectId, address donor, uint8 milestoneCount) private view returns (uint256 amount) {

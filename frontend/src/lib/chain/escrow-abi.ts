@@ -5,6 +5,13 @@ export const escrowAbi = [
   { type: 'function', name: 'claimRefund', stateMutability: 'nonpayable', inputs: [{ name: 'projectId', type: 'uint256' }], outputs: [{ name: 'amount', type: 'uint256' }] },
   { type: 'function', name: 'submitMilestoneEvidence', stateMutability: 'nonpayable', inputs: [{ name: 'projectId', type: 'uint256' }, { name: 'milestoneId', type: 'uint8' }, { name: 'evidenceHash', type: 'bytes32' }], outputs: [] },
   { type: 'function', name: 'confirmMilestone', stateMutability: 'nonpayable', inputs: [{ name: 'projectId', type: 'uint256' }, { name: 'milestoneId', type: 'uint8' }, { name: 'role', type: 'bytes32' }], outputs: [] },
+  { type: 'function', name: 'submitSupportCostProof', stateMutability: 'nonpayable', inputs: [
+    { name: 'projectId', type: 'uint256' }, { name: 'milestoneId', type: 'uint8' }, { name: 'commitment', type: 'bytes32' },
+    { name: 'proof', type: 'tuple', components: [
+      { name: 'a', type: 'uint256[2]' }, { name: 'b', type: 'uint256[2][2]' }, { name: 'c', type: 'uint256[2]' },
+    ] },
+    { name: 'auditor', type: 'address' }, { name: 'auditorSignature', type: 'bytes' },
+  ], outputs: [] },
   {
     type: 'function', name: 'createProject', stateMutability: 'nonpayable',
     inputs: [{
@@ -13,6 +20,7 @@ export const escrowAbi = [
         { name: 'budgets', type: 'uint256[]' },
         { name: 'requiredRoles', type: 'bytes32[][]' },
         { name: 'requiredCounts', type: 'uint8[][]' },
+        { name: 'maxSupportCostBps', type: 'uint16[]' },
         { name: 'evidencePeriod', type: 'uint64' },
         { name: 'refundDelay', type: 'uint64' },
       ],

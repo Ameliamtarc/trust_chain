@@ -9,17 +9,17 @@ import { chain, escrowAddress } from '@/lib/chain/config';
 import { escrowAbi } from '@/lib/chain/escrow-abi';
 import { registrationMessage, type ProjectMetadata } from '@/lib/chain/project-registration';
 
-type DraftMilestone = { title: string; description: string; budget: string; role: 'safeguardingVerifier' | 'auditor' };
+type DraftMilestone = { title: string; description: string; budget: string; role: 'safeguardingVerifier' | 'auditor'; maxSupportCostBps: string };
 type Recovery = { metadata: ProjectMetadata; transactionHash: Hex; projectId: bigint; organizer: Address };
 const roleIds = {
   safeguardingVerifier: keccak256(toBytes('SAFEGUARDING_VERIFIER_ROLE')),
   auditor: keccak256(toBytes('AUDITOR_ROLE')),
 } as const;
 const defaultMilestones: DraftMilestone[] = [
-  { title: 'Preparación de salvaguarda', description: 'Política y formación organizativa revisadas.', budget: '1000', role: 'safeguardingVerifier' },
-  { title: 'Capacidad de respuesta segura', description: 'Procesos organizativos revisados, sin datos de casos.', budget: '1500', role: 'safeguardingVerifier' },
-  { title: 'Prevención y apoyo', description: 'Actividades verificadas de forma agregada.', budget: '2500', role: 'safeguardingVerifier' },
-  { title: 'Revisión independiente', description: 'Revisión programática y financiera del programa.', budget: '500', role: 'auditor' },
+  { title: 'Preparación de salvaguarda', description: 'Política y formación organizativa revisadas.', budget: '1000', role: 'safeguardingVerifier', maxSupportCostBps: '0' },
+  { title: 'Capacidad de respuesta segura', description: 'Procesos organizativos revisados, sin datos de casos.', budget: '1500', role: 'safeguardingVerifier', maxSupportCostBps: '0' },
+  { title: 'Prevención y apoyo', description: 'Actividades verificadas de forma agregada.', budget: '2500', role: 'safeguardingVerifier', maxSupportCostBps: '0' },
+  { title: 'Revisión independiente', description: 'Revisión programática y financiera del programa.', budget: '500', role: 'auditor', maxSupportCostBps: '1000' },
 ];
 
 export function CreateProjectForm() {
@@ -43,7 +43,7 @@ export function CreateProjectForm() {
   }
   function addMilestone() {
     if (milestones.length >= 8) return;
-    setMilestones((current) => [...current, { title: '', description: '', budget: '', role: 'safeguardingVerifier' }]);
+    setMilestones((current) => [...current, { title: '', description: '', budget: '', role: 'safeguardingVerifier', maxSupportCostBps: '0' }]);
   }
   function removeMilestone(index: number) {
     setMilestones((current) => current.length > 1 ? current.filter((_, i) => i !== index) : current);
@@ -107,13 +107,14 @@ export function CreateProjectForm() {
       const existingProjects = await listProjects();
       if (existingProjects.projects.some((project) => (project as { id?: string }).id === metadata.id)) throw new Error('Ese identificador ya está en uso. Elige otro antes de crear la transacción.');
       if (!metadata.organization || metadata.focusAreas.length === 0) throw new Error('Completa la organización y al menos un área de trabajo.');
-      if (milestones.some((item) => !item.title.trim() || !item.description.trim() || !Number.isFinite(Number(item.budget)) || Number(item.budget) <= 0)) {
-        throw new Error('Cada hito debe tener título, descripción y presupuesto mayor que cero.');
+      if (milestones.some((item) => !item.title.trim() || !item.description.trim() || !Number.isFinite(Number(item.budget)) || Number(item.budget) <= 0 || !/^\d+$/.test(item.maxSupportCostBps) || Number(item.maxSupportCostBps) > 10000)) {
+        throw new Error('Cada hito debe tener presupuesto válido y un límite de costes de apoyo entre 0 y 10.000 puntos básicos.');
       }
       if (!isAddress(arbitrator)) throw new Error('Indica la wallet del árbitro asignado.');
       const budgets = milestones.map((item) => parseEther(item.budget.trim()));
       const requiredRoles = milestones.map((item) => [roleIds[item.role]]);
       const requiredCounts = milestones.map(() => [1]);
+      const supportCostCaps = milestones.map((item) => Number(item.maxSupportCostBps));
 
       setPhase('creating');
       setStatus('Confirma la creación del proyecto en tu wallet…');
@@ -128,6 +129,7 @@ export function CreateProjectForm() {
           budgets,
           requiredRoles,
           requiredCounts,
+          maxSupportCostBps: supportCostCaps,
           evidencePeriod: 7n * 24n * 60n * 60n,
           refundDelay: 3n * 24n * 60n * 60n,
         }],
@@ -177,6 +179,7 @@ export function CreateProjectForm() {
         <div className="milestone-top"><span className="milestone-index">0{index + 1}</span><input aria-label={`Título del hito ${index + 1}`} required maxLength={100} value={milestone.title} onChange={(e) => updateMilestone(index, 'title', e.target.value)} placeholder="Nombre del hito" />{milestones.length > 1 && <button type="button" className="remove-button" onClick={() => removeMilestone(index)} aria-label="Eliminar hito">×</button>}</div>
         <textarea required maxLength={300} rows={2} aria-label={`Descripción del hito ${index + 1}`} value={milestone.description} onChange={(e) => updateMilestone(index, 'description', e.target.value)} placeholder="Descripción pública, sin datos de casos" />
         <div className="milestone-meta"><label>Presupuesto<input type="number" required min="0.01" step="0.01" value={milestone.budget} onChange={(e) => updateMilestone(index, 'budget', e.target.value)} /><small>mAID</small></label><label>Quién verifica<select value={milestone.role} onChange={(e) => updateMilestone(index, 'role', e.target.value as DraftMilestone['role'])}><option value="safeguardingVerifier">Verificador de salvaguarda</option><option value="auditor">Auditoría</option></select></label></div>
+        <label>Límite de costes de apoyo<input type="number" min="0" max="10000" step="1" value={milestone.maxSupportCostBps} onChange={(e) => updateMilestone(index, 'maxSupportCostBps', e.target.value)} /><small>puntos básicos · 1000 = 10%. 0 desactiva la prueba para este hito.</small></label>
       </fieldset>)}</div>
       {milestones.length < 8 && <button className="add-milestone" type="button" onClick={addMilestone}>＋ Añadir hito</button>}
       <label className="arbitrator-field">Wallet del árbitro<input required value={arbitrator} onChange={(e) => setArbitrator(e.target.value)} placeholder="0x…" /></label>

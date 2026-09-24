@@ -32,6 +32,7 @@ const escrowAbi = [
       { name: 'budget', type: 'uint256' }, { name: 'fundingStart', type: 'uint256' },
       { name: 'evidenceDeadline', type: 'uint64' }, { name: 'status', type: 'uint8' },
       { name: 'evidenceHash', type: 'bytes32' },
+      { name: 'maxSupportCostBps', type: 'uint16' }, { name: 'supportCostProofSubmitted', type: 'bool' },
     ],
   },
   {
@@ -62,6 +63,8 @@ export interface MilestoneAccessState {
   projectStatus: number;
   milestoneStatus: number;
   evidenceHash: Hex;
+  maxSupportCostBps: number;
+  supportCostProofSubmitted: boolean;
   requiredRoles: readonly Hex[];
 }
 
@@ -82,6 +85,8 @@ export class EscrowReader {
       projectStatus: Number(project[8]),
       milestoneStatus: Number(milestone[3]),
       evidenceHash: milestone[4],
+      maxSupportCostBps: Number(milestone[5]),
+      supportCostProofSubmitted: milestone[6],
       requiredRoles,
     };
   }
@@ -131,6 +136,8 @@ export class EscrowReader {
       evidenceDeadline: string;
       status: string;
       evidenceHash: Hex;
+      maxSupportCostBps: number;
+      supportCostProofSubmitted: boolean;
       requiredRoles: readonly Hex[];
     }>;
   } | undefined> {
@@ -161,6 +168,8 @@ export class EscrowReader {
         evidenceDeadline: milestone[2].toString(),
         status: milestoneStatuses[Number(milestone[3])] ?? 'unknown',
         evidenceHash: milestone[4],
+        maxSupportCostBps: Number(milestone[5]),
+        supportCostProofSubmitted: milestone[6],
         requiredRoles,
       };
     }));

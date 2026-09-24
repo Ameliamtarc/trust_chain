@@ -1,0 +1,23 @@
+{
+  "name": "proof-of-aid-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --import tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^10.2.1",
+    "fastify": "^5.2.1",
+    "viem": "^2.21.54"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

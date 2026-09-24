@@ -9,7 +9,7 @@ import { DisputeActions } from '@/features/disputes/dispute-actions';
 import { EvidenceWorkflow } from '@/features/evidence/evidence-workflow';
 
 type Project = { id: string; name: string; organization: string; summary: string; focusAreas: string[]; milestones: Array<{ id: string; title: string; description: string }>; chainProjectId: string; demo?: boolean };
-type ChainProject = { id: string; organizer: string; arbitrator: string; target: string; totalDonated: string; totalReleased: string; totalRefunded: string; currentMilestone: number; status: string; milestones: Array<{ id: number; budget: string; evidenceDeadline: string; status: string; evidenceHash: string; requiredRoles: string[] }> };
+type ChainProject = { id: string; organizer: string; arbitrator: string; target: string; totalDonated: string; totalReleased: string; totalRefunded: string; currentMilestone: number; status: string; milestones: Array<{ id: number; budget: string; evidenceDeadline: string; status: string; evidenceHash: string; requiredRoles: string[]; maxSupportCostBps: number; supportCostProofSubmitted: boolean }> };
 
 export default function ProjectPage() {
   const params = useParams<{ projectId: string }>();
